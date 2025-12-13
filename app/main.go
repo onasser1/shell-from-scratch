@@ -21,6 +21,20 @@ func echoFunc(cmdList []string) {
 	fmt.Print(cmdList[len(cmdList)-1])
 }
 
+func typeFunc(cmdList []string) {
+	if len(cmdList) != 2 {
+		fmt.Println("Please provide at least one command after type.")
+		return
+	}
+	trimmedCommand := strings.TrimSuffix(cmdList[1], "\n")
+	switch trimmedCommand {
+	case "echo", "exit", "type":
+		fmt.Printf("%s is a shell builtin\n", strings.TrimSuffix(trimmedCommand, "\n"))
+	default:
+		fmt.Printf("%s: not found\n", trimmedCommand)
+	}
+}
+
 func mainLoop() {
 	fmt.Print("$ ")
 	cmdInput, err := bufio.NewReader(os.Stdin).ReadString('\n')
@@ -39,6 +53,8 @@ func mainLoop() {
 		os.Exit(127)
 	case "echo":
 		echoFunc(cmdList)
+	case "type":
+		typeFunc(cmdList)
 	default:
 		fmt.Printf("%s: command not found\n", trimmedCommand)
 	}
