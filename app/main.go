@@ -31,8 +31,35 @@ func typeFunc(cmdList []string) {
 	case "echo", "exit", "type":
 		fmt.Printf("%s is a shell builtin\n", strings.TrimSuffix(trimmedCommand, "\n"))
 	default:
-		fmt.Printf("%s: not found\n", trimmedCommand)
+		LookForDirectories()
 	}
+}
+
+func LookForDirectories() {}
+
+func ReadDirs(directories []string, commandName string) {
+	for _, dir := range directories {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			fmt.Println("error reading directory")
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			if entry.Name() == commandName {
+				isExecutable(entry)
+			}
+		}
+	}
+}
+
+func isExecutable(entry os.DirEntry) bool {
+	entryInfo, err := entry.Info()
+	if err != nil {
+		fmt.Println("error retrieving entry information")
+	}
+	return strings.Contains(entryInfo.Mode().String(), "x")
 }
 
 func mainLoop() {
