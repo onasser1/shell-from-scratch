@@ -17,6 +17,9 @@ func mainLoop() {
 		fmt.Println("error reading command input")
 	}
 	cmd := strings.TrimSuffix(cmdInput, "\n")
+	if cmd == "exit" {
+		os.Exit(127)
+	}
 	fmt.Printf("%s: command not found\n", cmd)
 }
 
