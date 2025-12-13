@@ -10,7 +10,7 @@ import (
 // Ensures gofmt doesn't remove the "fmt" import in stage 1 (feel free to remove this!)
 var _ = fmt.Print
 
-func main() {
+func mainLoop() {
 	fmt.Print("$ ")
 	cmdInput, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if err != nil {
@@ -18,4 +18,10 @@ func main() {
 	}
 	cmd := strings.TrimSuffix(cmdInput, "\n")
 	fmt.Printf("%s: command not found\n", cmd)
+}
+
+func main() {
+	for {
+		mainLoop()
+	}
 }
