@@ -8,7 +8,6 @@ import (
 )
 
 const (
-	PATH              = "/usr/local/bin:/usr/bin:/usr/sbin/:/bin"
 	PathListSeparator = ":"
 )
 
@@ -41,6 +40,7 @@ func typeFunc(cmdList []string) {
 }
 
 func LookForDirectories(tCmd string) {
+	PATH := os.Getenv("PATH")
 	directores := strings.Split(PATH, PathListSeparator)
 	ReadDirs(directores, tCmd)
 }
