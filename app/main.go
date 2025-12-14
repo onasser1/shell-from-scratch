@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	PATH              = "/usr/local/bin:/usr/bin:/usr/sbin/:/bin"
+	// PATH              = "/usr/local/bin:/usr/bin:/usr/sbin/:/bin"
 	PathListSeparator = ":"
 )
 
@@ -41,6 +41,7 @@ func typeFunc(cmdList []string) {
 }
 
 func LookForDirectories(tCmd string) {
+	PATH := os.Getenv("PATH")
 	directores := strings.Split(PATH, PathListSeparator)
 	ReadDirs(directores, tCmd)
 }
@@ -48,6 +49,9 @@ func LookForDirectories(tCmd string) {
 func ReadDirs(directories []string, commandName string) {
 	var found bool
 	for _, dir := range directories {
+		if strings.Contains(dir, "/var/run") || strings.Contains(dir, "/Users/omar") {
+			continue
+		}
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			fmt.Println("error reading directory")
