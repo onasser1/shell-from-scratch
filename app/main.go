@@ -42,8 +42,8 @@ func typeFunc(cmdList []string) {
 
 func LookForDirectories(tCmd string) {
 	PATH := os.Getenv("PATH")
-	directores := strings.Split(PATH, PathListSeparator)
-	ReadDirs(directores, tCmd)
+	directories := strings.Split(PATH, PathListSeparator)
+	ReadDirs(directories, tCmd)
 }
 
 func ReadDirs(directories []string, commandName string) {
@@ -51,6 +51,10 @@ func ReadDirs(directories []string, commandName string) {
 	for _, dir := range directories {
 		if strings.Contains(dir, "/var/run") || strings.Contains(dir, "/Users/omar") {
 			continue
+		}
+		err := os.MkdirAll(dir, os.ModePerm)
+		if err != nil {
+			fmt.Println("error creating non-existent directories", dir)
 		}
 		entries, err := os.ReadDir(dir)
 		if err != nil {
