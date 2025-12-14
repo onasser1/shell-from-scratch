@@ -7,6 +7,11 @@ import (
 	"strings"
 )
 
+const (
+	PATH              = "/usr/local/bin:/usr/bin:/usr/sbin/:/bin"
+	PathListSeparator = ":"
+)
+
 // Ensures gofmt doesn't remove the "fmt" import in stage 1 (feel free to remove this!)
 var _ = fmt.Print
 
@@ -31,13 +36,17 @@ func typeFunc(cmdList []string) {
 	case "echo", "exit", "type":
 		fmt.Printf("%s is a shell builtin\n", strings.TrimSuffix(trimmedCommand, "\n"))
 	default:
-		LookForDirectories()
+		LookForDirectories(trimmedCommand)
 	}
 }
 
-func LookForDirectories() {}
+func LookForDirectories(tCmd string) {
+	directores := strings.Split(PATH, PathListSeparator)
+	ReadDirs(directores, tCmd)
+}
 
 func ReadDirs(directories []string, commandName string) {
+	var found bool
 	for _, dir := range directories {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -48,9 +57,16 @@ func ReadDirs(directories []string, commandName string) {
 				continue
 			}
 			if entry.Name() == commandName {
-				isExecutable(entry)
+				found = true
+				if isExecutable(entry) {
+					fmt.Printf("%s is %s/%s\n", entry.Name(), dir, commandName)
+					return
+				}
 			}
 		}
+	}
+	if !found {
+		fmt.Printf("%s: not found\n", commandName)
 	}
 }
 
