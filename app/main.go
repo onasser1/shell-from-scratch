@@ -42,10 +42,13 @@ func typeFunc(cmdList []string) {
 	}
 }
 
-func LookForDirectoriesTypeFunc(tCmd string) {
+func LookForDirectoriesTypeFunc(tCmd string) error {
 	PATH := os.Getenv("PATH")
 	directories := strings.Split(PATH, PathListSeparator)
-	err := ReadDirsTypeFunc(directories, tCmd)
+	if err := ReadDirsTypeFunc(directories, tCmd); err != nil {
+		return fmt.Errorf("%s", err)
+	}
+	return nil
 }
 
 func ReadDirsTypeFunc(directories []string, commandName string) error {
@@ -56,11 +59,11 @@ func ReadDirsTypeFunc(directories []string, commandName string) error {
 		}
 		err := os.MkdirAll(dir, os.ModePerm)
 		if err != nil {
-			return fmt.Errorf("error creating non-existent directories", dir)
+			return fmt.Errorf("error creating non-existent directories: %s", err)
 		}
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			return fmt.Errorf("error reading directory")
+			return fmt.Errorf("error reading directory: %s", err)
 		}
 		for _, entry := range entries {
 			if entry.IsDir() {
@@ -102,11 +105,11 @@ func ReadDirsExecProgram(directories []string, commandName string, args []string
 		}
 		err := os.MkdirAll(dir, os.ModePerm)
 		if err != nil {
-			return fmt.Errorf("error creating non-existent directories", dir)
+			return fmt.Errorf("error creating non-existent directories: %s", err)
 		}
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			return fmt.Errorf("error reading directory")
+			return fmt.Errorf("error reading directory: %s", err)
 		}
 		for _, entry := range entries {
 			if entry.IsDir() {
@@ -165,7 +168,7 @@ func mainLoop() error {
 	}
 	cmdList := strings.Split(cmdInput, " ")
 	if len(cmdList) == 0 {
-		return errors.New("invalid input\n")
+		return errors.New("invalid input")
 	}
 
 	trimmedCommand := strings.TrimSuffix(cmdList[0], "\n")
