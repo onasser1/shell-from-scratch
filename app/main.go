@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 )
 
@@ -36,17 +37,17 @@ func typeFunc(cmdList []string) {
 	case "echo", "exit", "type":
 		fmt.Printf("%s is a shell builtin\n", strings.TrimSuffix(trimmedCommand, "\n"))
 	default:
-		LookForDirectories(trimmedCommand)
+		LookForDirectoriesTypeFunc(trimmedCommand)
 	}
 }
 
-func LookForDirectories(tCmd string) {
+func LookForDirectoriesTypeFunc(tCmd string) {
 	PATH := os.Getenv("PATH")
 	directories := strings.Split(PATH, PathListSeparator)
-	ReadDirs(directories, tCmd)
+	ReadDirsTypeFunc(directories, tCmd)
 }
 
-func ReadDirs(directories []string, commandName string) {
+func ReadDirsTypeFunc(directories []string, commandName string) {
 	var found bool
 	for _, dir := range directories {
 		if strings.Contains(dir, "/var/run") || strings.Contains(dir, "/Users/omar") {
@@ -78,12 +79,72 @@ func ReadDirs(directories []string, commandName string) {
 	}
 }
 
+func ExecFunc(cmdList []string) {
+	tCmd := strings.TrimSuffix(cmdList[0], "\n")
+	LookForDirectoriesExecProgram(tCmd, cmdList)
+}
+
+func LookForDirectoriesExecProgram(tCmd string, args []string) {
+	PATH := os.Getenv("PATH")
+	directories := strings.Split(PATH, PathListSeparator)
+	ReadDirsExecProgram(directories, tCmd, args)
+}
+
+func ReadDirsExecProgram(directories []string, commandName string, args []string) {
+	var execPerm os.FileMode = 0755
+	var found bool
+	for _, dir := range directories {
+		if strings.Contains(dir, "/var/run") || strings.Contains(dir, "/Users/omar") {
+			continue
+		}
+		err := os.MkdirAll(dir, os.ModePerm)
+		if err != nil {
+			fmt.Println("error creating non-existent directories", dir)
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			fmt.Println("error reading directory")
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			if entry.Name() == commandName {
+				found = true
+				if isExecutable(entry) {
+					trim := strings.TrimSuffix(strings.Join(args, " "), "\n")
+					trimmedSlice := strings.Split(trim, " ")
+					cmd := exec.Command(commandName, trimmedSlice[1:]...)
+					out, err := cmd.CombinedOutput()
+					if err != nil {
+						return
+					}
+					fmt.Printf("%s", out)
+					return
+				} else {
+					fPath := dir + entry.Name()
+					MakeExecutable(fPath, execPerm)
+				}
+			}
+		}
+	}
+	if !found {
+		fmt.Printf("%s: not found\n", commandName)
+	}
+}
+
 func isExecutable(entry os.DirEntry) bool {
 	entryInfo, err := entry.Info()
 	if err != nil {
 		fmt.Println("error retrieving entry information")
 	}
 	return strings.Contains(entryInfo.Mode().String(), "x")
+}
+
+func MakeExecutable(filePath string, mode os.FileMode) {
+	if err := os.Chmod(filePath, mode); err != nil {
+		return
+	}
 }
 
 func mainLoop() {
@@ -107,7 +168,7 @@ func mainLoop() {
 	case "type":
 		typeFunc(cmdList)
 	default:
-		fmt.Printf("%s: command not found\n", trimmedCommand)
+		ExecFunc(cmdList)
 	}
 
 }
