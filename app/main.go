@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -44,10 +45,10 @@ func typeFunc(cmdList []string) {
 func LookForDirectoriesTypeFunc(tCmd string) {
 	PATH := os.Getenv("PATH")
 	directories := strings.Split(PATH, PathListSeparator)
-	ReadDirsTypeFunc(directories, tCmd)
+	err := ReadDirsTypeFunc(directories, tCmd)
 }
 
-func ReadDirsTypeFunc(directories []string, commandName string) {
+func ReadDirsTypeFunc(directories []string, commandName string) error {
 	var found bool
 	for _, dir := range directories {
 		if strings.Contains(dir, "/var/run") || strings.Contains(dir, "/Users/omar") {
@@ -55,11 +56,11 @@ func ReadDirsTypeFunc(directories []string, commandName string) {
 		}
 		err := os.MkdirAll(dir, os.ModePerm)
 		if err != nil {
-			fmt.Println("error creating non-existent directories", dir)
+			return fmt.Errorf("error creating non-existent directories", dir)
 		}
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			fmt.Println("error reading directory")
+			return fmt.Errorf("error reading directory")
 		}
 		for _, entry := range entries {
 			if entry.IsDir() {
@@ -69,14 +70,16 @@ func ReadDirsTypeFunc(directories []string, commandName string) {
 				found = true
 				if isExecutable(entry) {
 					fmt.Printf("%s is %s/%s\n", entry.Name(), dir, commandName)
-					return
+					return nil
 				}
 			}
 		}
 	}
+	// **TODO**: The following if block is redundant and can be removed and return nil immediately with the print statement.
 	if !found {
 		fmt.Printf("%s: not found\n", commandName)
 	}
+	return nil
 }
 
 func ExecFunc(cmdList []string) {
@@ -90,7 +93,7 @@ func LookForDirectoriesExecProgram(tCmd string, args []string) {
 	ReadDirsExecProgram(directories, tCmd, args)
 }
 
-func ReadDirsExecProgram(directories []string, commandName string, args []string) {
+func ReadDirsExecProgram(directories []string, commandName string, args []string) error {
 	var execPerm os.FileMode = 0755
 	var found bool
 	for _, dir := range directories {
@@ -99,11 +102,11 @@ func ReadDirsExecProgram(directories []string, commandName string, args []string
 		}
 		err := os.MkdirAll(dir, os.ModePerm)
 		if err != nil {
-			fmt.Println("error creating non-existent directories", dir)
+			return fmt.Errorf("error creating non-existent directories", dir)
 		}
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			fmt.Println("error reading directory")
+			return fmt.Errorf("error reading directory")
 		}
 		for _, entry := range entries {
 			if entry.IsDir() {
@@ -117,13 +120,16 @@ func ReadDirsExecProgram(directories []string, commandName string, args []string
 					cmd := exec.Command(commandName, trimmedSlice[1:]...)
 					out, err := cmd.CombinedOutput()
 					if err != nil {
-						return
+						return fmt.Errorf("%s", err)
 					}
 					fmt.Printf("%s", out)
-					return
+					// **TODO**: Maybe the next return nil statement is redundant too. Removal to be considered.
+					return nil
 				} else {
 					fPath := dir + entry.Name()
-					MakeExecutable(fPath, execPerm)
+					if err := MakeExecutable(fPath, execPerm); err != nil {
+						return fmt.Errorf("%s", err)
+					}
 				}
 			}
 		}
@@ -131,6 +137,8 @@ func ReadDirsExecProgram(directories []string, commandName string, args []string
 	if !found {
 		fmt.Printf("%s: not found\n", commandName)
 	}
+	// **TODO**: Maybe the next return nil statement is redundant too. Removal to be considered.
+	return nil
 }
 
 func isExecutable(entry os.DirEntry) bool {
@@ -141,22 +149,23 @@ func isExecutable(entry os.DirEntry) bool {
 	return strings.Contains(entryInfo.Mode().String(), "x")
 }
 
-func MakeExecutable(filePath string, mode os.FileMode) {
+func MakeExecutable(filePath string, mode os.FileMode) error {
 	if err := os.Chmod(filePath, mode); err != nil {
-		return
+		return err
 	}
+	return nil
 }
 
-func mainLoop() {
+func mainLoop() error {
 	fmt.Print("$ ")
 	cmdInput, err := bufio.NewReader(os.Stdin).ReadString('\n')
 
 	if err != nil {
-		fmt.Println("error reading command input")
+		return fmt.Errorf("error reading command input: %s", err)
 	}
 	cmdList := strings.Split(cmdInput, " ")
 	if len(cmdList) == 0 {
-		return
+		return errors.New("invalid input\n")
 	}
 
 	trimmedCommand := strings.TrimSuffix(cmdList[0], "\n")
@@ -170,11 +179,14 @@ func mainLoop() {
 	default:
 		ExecFunc(cmdList)
 	}
-
+	return nil
 }
 
 func main() {
 	for {
-		mainLoop()
+		err := mainLoop()
+		if err != nil {
+			break
+		}
 	}
 }
