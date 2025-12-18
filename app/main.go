@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -14,18 +15,28 @@ const (
 	PathListSeparator = ":"
 )
 
-// Ensures gofmt doesn't remove the "fmt" import in stage 1 (feel free to remove this!)
+// Ensures gofmt doesn't remove the "fmt" import
 var _ = fmt.Print
 
-func echoFunc(cmdList []string) {
+func pwdFunc() error {
+	currentPath, err := filepath.Abs("")
+	if err != nil {
+		return fmt.Errorf("error retrieving path: %s", err)
+	}
+	fmt.Println(currentPath)
+	return nil
+}
+
+func echoFunc(cmdList []string) error {
 	if len(cmdList) == 1 {
 		fmt.Println()
-		return
+		return nil
 	}
 	for i := 1; i < len(cmdList)-1; i++ {
 		fmt.Printf("%s ", cmdList[i])
 	}
 	fmt.Print(cmdList[len(cmdList)-1])
+	return nil
 }
 
 func typeFunc(cmdList []string) {
@@ -35,7 +46,7 @@ func typeFunc(cmdList []string) {
 	}
 	trimmedCommand := strings.TrimSuffix(cmdList[1], "\n")
 	switch trimmedCommand {
-	case "echo", "exit", "type":
+	case "echo", "exit", "type", "pwd":
 		fmt.Printf("%s is a shell builtin\n", strings.TrimSuffix(trimmedCommand, "\n"))
 	default:
 		LookForDirectoriesTypeFunc(trimmedCommand)
@@ -179,6 +190,8 @@ func mainLoop() error {
 		echoFunc(cmdList)
 	case "type":
 		typeFunc(cmdList)
+	case "pwd":
+		pwdFunc()
 	default:
 		ExecFunc(cmdList)
 	}
