@@ -29,19 +29,42 @@ func pwdFunc() error {
 
 // cdFunc() should at least takes Path as an argument.
 func cdFunc(cmdList []string) error {
-	if len(cmdList) != 2 {
-		return fmt.Errorf("Invalid number of arguments.\n")
+	var err error
+	if len(cmdList) == 1 {
+		absPath, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("err: %s", err)
+		}
+		return changeDirectoryFunc(absPath)
 	}
-	path := strings.TrimSuffix(cmdList[1], "\n")
-	absPath, err := filepath.Abs(path)
+
+	pathArgs := cmdList[1:]
+	normalizedPathArg := strings.TrimSpace(strings.Join(pathArgs, ""))
+	// switch normalizedPathArg {
+	// **TODO**: Simplify this Switch cases to be inline or convert to if-sections.
+	// case "", "~":
+	// 	absPath, _ = os.UserHomeDir()
+	// 	err = changeDirectoryFunc(absPath)
+	// default:
+	// 	err = changeDirectoryFunc(normalizedPathArg)
+	// }
+	if normalizedPathArg == "" || normalizedPathArg == "~" {
+		normalizedPathArg, _ = os.UserHomeDir()
+	}
+	err = changeDirectoryFunc(normalizedPathArg)
+
 	if err != nil {
-		return fmt.Errorf("error retrieving absolute path of: %s:%s\n", path, err)
+		fmt.Print(err)
 	}
-	_, err = os.ReadDir(absPath)
+	return nil
+}
+
+func changeDirectoryFunc(normalizedPathArg string) error {
+	_, err := os.ReadDir(normalizedPathArg)
 	if err != nil {
-		return fmt.Errorf("cd: %s: No such file or directory\n", absPath)
+		return fmt.Errorf("cd: %s: No such file or directory\n", normalizedPathArg)
 	}
-	err = os.Chdir(absPath)
+	err = os.Chdir(normalizedPathArg)
 	return nil
 }
 
