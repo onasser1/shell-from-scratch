@@ -27,6 +27,24 @@ func pwdFunc() error {
 	return nil
 }
 
+// cdFunc() should at least takes Path as an argument.
+func cdFunc(cmdList []string) error {
+	if len(cmdList) != 2 {
+		return fmt.Errorf("Invalid number of arguments.\n")
+	}
+	path := strings.TrimSuffix(cmdList[1], "\n")
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("error retrieving absolute path of: %s:%s\n", path, err)
+	}
+	_, err = os.ReadDir(absPath)
+	if err != nil {
+		return fmt.Errorf("cd: %s: No such file or directory\n", absPath)
+	}
+	err = os.Chdir(absPath)
+	return nil
+}
+
 func echoFunc(cmdList []string) error {
 	if len(cmdList) == 1 {
 		fmt.Println()
@@ -46,7 +64,7 @@ func typeFunc(cmdList []string) {
 	}
 	trimmedCommand := strings.TrimSuffix(cmdList[1], "\n")
 	switch trimmedCommand {
-	case "echo", "exit", "type", "pwd":
+	case "echo", "exit", "type", "pwd", "cd":
 		fmt.Printf("%s is a shell builtin\n", strings.TrimSuffix(trimmedCommand, "\n"))
 	default:
 		LookForDirectoriesTypeFunc(trimmedCommand)
@@ -187,13 +205,18 @@ func mainLoop() error {
 	case "exit":
 		os.Exit(127)
 	case "echo":
-		echoFunc(cmdList)
+		err = echoFunc(cmdList)
 	case "type":
 		typeFunc(cmdList)
 	case "pwd":
-		pwdFunc()
+		err = pwdFunc()
+	case "cd":
+		err = cdFunc(cmdList)
 	default:
 		ExecFunc(cmdList)
+	}
+	if err != nil {
+		fmt.Print(err)
 	}
 	return nil
 }
