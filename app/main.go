@@ -36,9 +36,10 @@ func redirect(args []string) error {
 	matcher := args[len(args)-2]
 
 	buf := ExecFunc(args[:len(args)-2], true)
+	cleanedBuf := strings.ReplaceAll(buf.String(), "'", "")
 
 	if matcher != "" && buf != nil {
-		err := os.WriteFile(outFile, []byte(buf.Bytes()), 0644)
+		err := os.WriteFile(outFile, []byte(cleanedBuf), 0644)
 		if err != nil {
 			fmt.Printf("Error %s", err)
 		}
@@ -86,7 +87,7 @@ func echoFunc(cmdList []string) error {
 		return nil
 	}
 	args := strings.TrimSuffix(strings.Join(cmdList[1:], " "), "\n")
-	fmt.Println(args)
+	fmt.Println(strings.ReplaceAll(args, "'", ""))
 	return nil
 }
 
@@ -155,10 +156,7 @@ func ExecFunc(cmdList []string, redirectFlag bool) *bytes.Buffer {
 func LookForDirectoriesExecProgram(tCmd string, args []string, redirectFlag bool) *bytes.Buffer {
 	PATH := os.Getenv("PATH")
 	directories := strings.Split(PATH, PathListSeparator)
-	buf, err := ReadDirsExecProgram(directories, tCmd, args, redirectFlag)
-	if err != nil {
-		return &bytes.Buffer{}
-	}
+	buf, _ := ReadDirsExecProgram(directories, tCmd, args, redirectFlag)
 	return buf
 }
 
@@ -190,18 +188,16 @@ func ReadDirsExecProgram(directories []string, commandName string, args []string
 
 					cmd := exec.Command(commandName, trimmedArgs...)
 					if redirectFlag {
-						cmd.Stdin = os.Stdin
 						cmd.Stdout = &buf
-						cmd.Stderr = os.Stderr
 					} else {
-						cmd.Stdin = os.Stdin
 						cmd.Stdout = os.Stdout
-						cmd.Stderr = os.Stderr
 					}
+					cmd.Stdin = os.Stdin
+					cmd.Stderr = os.Stderr
 
 					err := cmd.Run()
 					if err != nil {
-						return &bytes.Buffer{}, fmt.Errorf("err: %s", err)
+						return &buf, fmt.Errorf("err: %s", err)
 					}
 					// combinedOut, err := cmd.CombinedOutput()
 					// if err != nil {
