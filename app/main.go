@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -27,6 +28,24 @@ func pwdFunc() error {
 	return nil
 }
 
+func redirect(args []string) error {
+	if len(args) < 3 {
+		return fmt.Errorf("Invalid args\n")
+	}
+	outFile := strings.TrimSuffix(args[len(args)-1], "\n")
+	matcher := args[len(args)-2]
+
+	buf := ExecFunc(args[:len(args)-2], true)
+
+	if matcher != "" && buf != nil {
+		err := os.WriteFile(outFile, []byte(buf.Bytes()), 0644)
+		if err != nil {
+			fmt.Printf("Error %s", err)
+		}
+	}
+	return nil
+}
+
 // cdFunc() should at least takes Path as an argument.
 func cdFunc(cmdList []string) error {
 	var err error
@@ -40,14 +59,7 @@ func cdFunc(cmdList []string) error {
 
 	pathArgs := cmdList[1:]
 	normalizedPathArg := strings.TrimSpace(strings.Join(pathArgs, ""))
-	// switch normalizedPathArg {
-	// **TODO**: Simplify this Switch cases to be inline or convert to if-sections.
-	// case "", "~":
-	// 	absPath, _ = os.UserHomeDir()
-	// 	err = changeDirectoryFunc(absPath)
-	// default:
-	// 	err = changeDirectoryFunc(normalizedPathArg)
-	// }
+
 	if normalizedPathArg == "" || normalizedPathArg == "~" {
 		normalizedPathArg, _ = os.UserHomeDir()
 	}
@@ -73,10 +85,8 @@ func echoFunc(cmdList []string) error {
 		fmt.Println()
 		return nil
 	}
-	for i := 1; i < len(cmdList)-1; i++ {
-		fmt.Printf("%s ", cmdList[i])
-	}
-	fmt.Print(cmdList[len(cmdList)-1])
+	args := strings.TrimSuffix(strings.Join(cmdList[1:], " "), "\n")
+	fmt.Println(args)
 	return nil
 }
 
@@ -137,19 +147,24 @@ func ReadDirsTypeFunc(directories []string, commandName string) error {
 	return nil
 }
 
-func ExecFunc(cmdList []string) {
+func ExecFunc(cmdList []string, redirectFlag bool) *bytes.Buffer {
 	tCmd := strings.TrimSuffix(cmdList[0], "\n")
-	LookForDirectoriesExecProgram(tCmd, cmdList)
+	return LookForDirectoriesExecProgram(tCmd, cmdList[1:], redirectFlag)
 }
 
-func LookForDirectoriesExecProgram(tCmd string, args []string) {
+func LookForDirectoriesExecProgram(tCmd string, args []string, redirectFlag bool) *bytes.Buffer {
 	PATH := os.Getenv("PATH")
 	directories := strings.Split(PATH, PathListSeparator)
-	ReadDirsExecProgram(directories, tCmd, args)
+	buf, err := ReadDirsExecProgram(directories, tCmd, args, redirectFlag)
+	if err != nil {
+		return &bytes.Buffer{}
+	}
+	return buf
 }
 
-func ReadDirsExecProgram(directories []string, commandName string, args []string) error {
+func ReadDirsExecProgram(directories []string, commandName string, args []string, redirectFlag bool) (*bytes.Buffer, error) {
 	var execPerm os.FileMode = 0755
+	var buf bytes.Buffer
 	var found bool
 	for _, dir := range directories {
 		if strings.Contains(dir, "/var/run") || strings.Contains(dir, "/Users/omar") {
@@ -157,11 +172,11 @@ func ReadDirsExecProgram(directories []string, commandName string, args []string
 		}
 		err := os.MkdirAll(dir, os.ModePerm)
 		if err != nil {
-			return fmt.Errorf("error creating non-existent directories: %s", err)
+			return &bytes.Buffer{}, fmt.Errorf("error creating non-existent directories: %s", err)
 		}
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			return fmt.Errorf("error reading directory: %s", err)
+			return &bytes.Buffer{}, fmt.Errorf("error reading directory: %s", err)
 		}
 		for _, entry := range entries {
 			if entry.IsDir() {
@@ -171,19 +186,34 @@ func ReadDirsExecProgram(directories []string, commandName string, args []string
 				found = true
 				if isExecutable(entry) {
 					trim := strings.TrimSuffix(strings.Join(args, " "), "\n")
-					trimmedSlice := strings.Split(trim, " ")
-					cmd := exec.Command(commandName, trimmedSlice[1:]...)
-					out, err := cmd.CombinedOutput()
-					if err != nil {
-						return fmt.Errorf("%s", err)
+					trimmedArgs := strings.Split(trim, " ")
+
+					cmd := exec.Command(commandName, trimmedArgs...)
+					if redirectFlag {
+						cmd.Stdin = os.Stdin
+						cmd.Stdout = &buf
+						cmd.Stderr = os.Stderr
+					} else {
+						cmd.Stdin = os.Stdin
+						cmd.Stdout = os.Stdout
+						cmd.Stderr = os.Stderr
 					}
-					fmt.Printf("%s", out)
+
+					err := cmd.Run()
+					if err != nil {
+						return &bytes.Buffer{}, fmt.Errorf("err: %s", err)
+					}
+					// combinedOut, err := cmd.CombinedOutput()
+					// if err != nil {
+					// 	return fmt.Errorf("%s", err)
+					// }
+					// fmt.Printf("%s", combinedOut)
 					// **TODO**: Maybe the next return nil statement is redundant too. Removal to be considered.
-					return nil
+					return &buf, nil
 				} else {
 					fPath := dir + entry.Name()
 					if err := MakeExecutable(fPath, execPerm); err != nil {
-						return fmt.Errorf("%s", err)
+						return &bytes.Buffer{}, fmt.Errorf("%s", err)
 					}
 				}
 			}
@@ -193,7 +223,7 @@ func ReadDirsExecProgram(directories []string, commandName string, args []string
 		fmt.Printf("%s: not found\n", commandName)
 	}
 	// **TODO**: Maybe the next return nil statement is redundant too. Removal to be considered.
-	return nil
+	return &buf, nil
 }
 
 func isExecutable(entry os.DirEntry) bool {
@@ -224,19 +254,21 @@ func mainLoop() error {
 	}
 
 	trimmedCommand := strings.TrimSuffix(cmdList[0], "\n")
-	switch trimmedCommand {
-	case "exit":
+	switch {
+	case trimmedCommand == "exit":
 		os.Exit(127)
-	case "echo":
+	case strings.Contains(cmdInput, ">"):
+		err = redirect(cmdList)
+	case trimmedCommand == "echo":
 		err = echoFunc(cmdList)
-	case "type":
+	case trimmedCommand == "type":
 		typeFunc(cmdList)
-	case "pwd":
+	case trimmedCommand == "pwd":
 		err = pwdFunc()
-	case "cd":
+	case trimmedCommand == "cd":
 		err = cdFunc(cmdList)
 	default:
-		ExecFunc(cmdList)
+		ExecFunc(cmdList, false)
 	}
 	if err != nil {
 		fmt.Print(err)
