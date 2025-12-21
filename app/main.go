@@ -133,8 +133,8 @@ func typeFunc(c *Command) {
 }
 
 func LookForDirectoriesTypeFunc(c *Command) error {
-	// PATH := os.Getenv("PATH")
-	directories := []string{"/bin"}
+	PATH := os.Getenv("PATH")
+	directories := strings.Split(PATH, PathListSeparator)
 	if err := ReadDirsTypeFunc(directories, c); err != nil {
 		return fmt.Errorf("%s", err)
 	}
