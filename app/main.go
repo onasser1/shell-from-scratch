@@ -1,10 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/chzyer/readline"
 	"log"
 	"os"
 	"os/exec"
@@ -309,14 +309,13 @@ func stripQuotes(sl []string) []string {
 	return sl
 }
 
-func mainLoop(c *Command) error {
-	fmt.Print("$ ")
-	cmdInput, err := bufio.NewReader(os.Stdin).ReadString('\n')
-
+func mainLoop(c *Command, rl *readline.Instance) error {
+	line, err := rl.Readline()
 	if err != nil {
 		return fmt.Errorf("error reading command input: %s", err)
 	}
-	cmdList := strings.Split(cmdInput, " ")
+
+	cmdList := strings.Split(line, " ")
 	if len(cmdList) == 0 {
 		return errors.New("invalid input")
 	}
@@ -330,7 +329,7 @@ func mainLoop(c *Command) error {
 	switch {
 	case trimmedCommand == "exit":
 		os.Exit(127)
-	case strings.Contains(cmdInput, ">"):
+	case strings.Contains(line, ">"):
 		err = redirect(c)
 	case trimmedCommand == "echo":
 		err = echoFunc(c)
@@ -351,8 +350,19 @@ func mainLoop(c *Command) error {
 
 func main() {
 	c := &Command{}
+	completer := readline.NewPrefixCompleter(readline.PcItem("exit"), readline.PcItem("echo"))
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:          "$ ",
+		AutoComplete:    completer,
+		InterruptPrompt: "^C",
+		EOFPrompt:       "exit",
+	})
+	if err != nil {
+		panic(err)
+	}
+	defer rl.Close()
 	for {
-		err := mainLoop(c)
+		err := mainLoop(c, rl)
 		if err != nil {
 			break
 		}
