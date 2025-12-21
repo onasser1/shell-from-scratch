@@ -63,7 +63,6 @@ func redirect(c *Command) error {
 	// c.args[:len(c.args)-2]
 	buf := ExecFunc(c)
 	cleanedBuf := strings.ReplaceAll(buf.String(), "'", "")
-
 	if matcher != "" && buf != nil {
 		err := os.WriteFile(outFile, []byte(cleanedBuf), 0644)
 		if err != nil {
@@ -134,8 +133,8 @@ func typeFunc(c *Command) {
 }
 
 func LookForDirectoriesTypeFunc(c *Command) error {
-	PATH := os.Getenv("PATH")
-	directories := strings.Split(PATH, PathListSeparator)
+	// PATH := os.Getenv("PATH")
+	directories := []string{"/bin"}
 	if err := ReadDirsTypeFunc(directories, c); err != nil {
 		return fmt.Errorf("%s", err)
 	}
@@ -144,6 +143,7 @@ func LookForDirectoriesTypeFunc(c *Command) error {
 
 func ReadDirsTypeFunc(directories []string, c *Command) error {
 	var found bool
+	cmdName := strings.TrimSuffix(c.args[1], "\n")
 	for _, dir := range directories {
 		if strings.Contains(dir, "/var/run") || strings.Contains(dir, "/Users/omar") {
 			continue
@@ -160,10 +160,10 @@ func ReadDirsTypeFunc(directories []string, c *Command) error {
 			if entry.IsDir() {
 				continue
 			}
-			if entry.Name() == c.cmdName {
+			if entry.Name() == cmdName {
 				found = true
 				if isExecutable(entry) {
-					fmt.Printf("%s is %s/%s\n", entry.Name(), dir, c.cmdName)
+					fmt.Printf("%s is %s/%s\n", entry.Name(), dir, cmdName)
 					return nil
 				}
 			}
@@ -171,7 +171,7 @@ func ReadDirsTypeFunc(directories []string, c *Command) error {
 	}
 	// **TODO**: The following if block is redundant and can be removed and return nil immediately with the print statement.
 	if !found {
-		fmt.Printf("%s: not found\n", c.cmdName)
+		fmt.Printf("%s: not found\n", cmdName)
 	}
 	return nil
 }
@@ -222,8 +222,9 @@ func ReadDirsExecProgram(directories []string, c *Command) (*bytes.Buffer, error
 						args = c.args[1 : len(c.args)-2]
 					}
 					trimmedInput := strings.TrimSuffix(strings.Join(args, " "), "\n")
-					trimmedArgs := strings.Split(trimmedInput, " ")
+					trimmedArgs := stripQuotes(strings.Split(trimmedInput, " "))
 
+					// As single and double quotes are not supported yet for this shell, we have to remove quotes that wrap the whole strings.
 					cmd := exec.Command(commandName, trimmedArgs...)
 					cmd.Stdin = os.Stdin
 					cmd.Stdout = os.Stdout
@@ -276,6 +277,13 @@ func MakeExecutable(filePath string, mode os.FileMode) error {
 		return err
 	}
 	return nil
+}
+func stripQuotes(sl []string) []string {
+	// As quotes are not supported yet in the shell, we remove temporarily.
+	for i, _ := range sl {
+		sl[i] = strings.ReplaceAll(sl[i], "'", "")
+	}
+	return sl
 }
 
 func mainLoop(c *Command) error {
