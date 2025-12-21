@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,18 +41,19 @@ func redirect(c *Command) error {
 	var (
 		matcher string
 		idx     int
+		err     error
 	)
 	if len(c.args) < 3 {
 		return fmt.Errorf("Invalid args\n")
 	}
-	redirectionCharacters := []string{">", "1>", "2>"}
+	redirectionCharacters := []string{">", "1>", "1>>", ">>", "2>", "2>>"}
 	// This is a very weak assumption. here we always assume that the input is ** ** ** ** > path. but what if we didn't get that formula?
 	outFile := strings.TrimSuffix(c.args[len(c.args)-1], "\n")
 	for i, _ := range redirectionCharacters {
 		idx = slices.Index(c.args, redirectionCharacters[i])
 		if idx != -1 {
 			matcher = c.args[idx]
-			if matcher == "2>" {
+			if matcher == "2>" || matcher == "2>>" {
 				c.stderrRedirect = true
 			} else {
 				c.stdoutRedirect = true
@@ -64,10 +66,30 @@ func redirect(c *Command) error {
 	buf := ExecFunc(c)
 	cleanedBuf := strings.ReplaceAll(buf.String(), "'", "")
 	if matcher != "" && buf != nil {
-		err := os.WriteFile(outFile, []byte(cleanedBuf), 0644)
-		if err != nil {
-			fmt.Printf("Error %s", err)
+		switch matcher {
+		case ">>", "1>>", "2>>":
+			err = WriteFiles(outFile, cleanedBuf, os.O_APPEND)
+		default:
+			err = WriteFiles(outFile, cleanedBuf, 0)
 		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func WriteFiles(outFile string, cleanedBuf string, append int) error {
+	f, err := os.OpenFile(outFile, append|os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if _, err := f.WriteString(cleanedBuf); err != nil {
+		f.Close() // ignore error; Write error takes precedence
+		log.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		log.Fatal(err)
 	}
 	return nil
 }
@@ -282,6 +304,7 @@ func stripQuotes(sl []string) []string {
 	// As quotes are not supported yet in the shell, we remove temporarily.
 	for i, _ := range sl {
 		sl[i] = strings.ReplaceAll(sl[i], "'", "")
+		sl[i] = strings.ReplaceAll(sl[i], "\"", "")
 	}
 	return sl
 }
