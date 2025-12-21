@@ -8,13 +8,21 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
 const (
-	// PATH              = "/usr/local/bin:/usr/bin:/usr/sbin/:/bin"
 	PathListSeparator = ":"
 )
+
+type Command struct {
+	stdoutRedirect bool
+	stderrRedirect bool
+	redirect       bool
+	args           []string
+	cmdName        string
+}
 
 // Ensures gofmt doesn't remove the "fmt" import
 var _ = fmt.Print
@@ -28,14 +36,32 @@ func pwdFunc() error {
 	return nil
 }
 
-func redirect(args []string) error {
-	if len(args) < 3 {
+func redirect(c *Command) error {
+	var (
+		matcher string
+		idx     int
+	)
+	if len(c.args) < 3 {
 		return fmt.Errorf("Invalid args\n")
 	}
-	outFile := strings.TrimSuffix(args[len(args)-1], "\n")
-	matcher := args[len(args)-2]
-
-	buf := ExecFunc(args[:len(args)-2], true)
+	redirectionCharacters := []string{">", "1>", "2>"}
+	// This is a very weak assumption. here we always assume that the input is ** ** ** ** > path. but what if we didn't get that formula?
+	outFile := strings.TrimSuffix(c.args[len(c.args)-1], "\n")
+	for i, _ := range redirectionCharacters {
+		idx = slices.Index(c.args, redirectionCharacters[i])
+		if idx != -1 {
+			matcher = c.args[idx]
+			if matcher == "2>" {
+				c.stderrRedirect = true
+			} else {
+				c.stdoutRedirect = true
+			}
+			c.redirect = true
+			break
+		}
+	}
+	// c.args[:len(c.args)-2]
+	buf := ExecFunc(c)
 	cleanedBuf := strings.ReplaceAll(buf.String(), "'", "")
 
 	if matcher != "" && buf != nil {
@@ -48,9 +74,9 @@ func redirect(args []string) error {
 }
 
 // cdFunc() should at least takes Path as an argument.
-func cdFunc(cmdList []string) error {
+func cdFunc(c *Command) error {
 	var err error
-	if len(cmdList) == 1 {
+	if len(c.args) == 1 {
 		absPath, err := os.UserHomeDir()
 		if err != nil {
 			return fmt.Errorf("err: %s", err)
@@ -58,7 +84,7 @@ func cdFunc(cmdList []string) error {
 		return changeDirectoryFunc(absPath)
 	}
 
-	pathArgs := cmdList[1:]
+	pathArgs := c.args[1:]
 	normalizedPathArg := strings.TrimSpace(strings.Join(pathArgs, ""))
 
 	if normalizedPathArg == "" || normalizedPathArg == "~" {
@@ -81,40 +107,42 @@ func changeDirectoryFunc(normalizedPathArg string) error {
 	return nil
 }
 
-func echoFunc(cmdList []string) error {
-	if len(cmdList) == 1 {
+func echoFunc(c *Command) error {
+	if len(c.args) == 1 {
 		fmt.Println()
 		return nil
 	}
-	args := strings.TrimSuffix(strings.Join(cmdList[1:], " "), "\n")
+	args := strings.TrimSuffix(strings.Join(c.args[1:], " "), "\n")
 	fmt.Println(strings.ReplaceAll(args, "'", ""))
 	return nil
 }
 
-func typeFunc(cmdList []string) {
-	if len(cmdList) != 2 {
+func typeFunc(c *Command) {
+	if len(c.args) != 2 {
 		fmt.Println("Please provide at least one command after type.")
 		return
 	}
-	trimmedCommand := strings.TrimSuffix(cmdList[1], "\n")
+	trimmedCommand := strings.TrimSuffix(c.args[1], "\n")
 	switch trimmedCommand {
 	case "echo", "exit", "type", "pwd", "cd":
 		fmt.Printf("%s is a shell builtin\n", strings.TrimSuffix(trimmedCommand, "\n"))
 	default:
-		LookForDirectoriesTypeFunc(trimmedCommand)
+		if err := LookForDirectoriesTypeFunc(c); err != nil {
+			fmt.Printf("%s: command not found\n", trimmedCommand)
+		}
 	}
 }
 
-func LookForDirectoriesTypeFunc(tCmd string) error {
+func LookForDirectoriesTypeFunc(c *Command) error {
 	PATH := os.Getenv("PATH")
 	directories := strings.Split(PATH, PathListSeparator)
-	if err := ReadDirsTypeFunc(directories, tCmd); err != nil {
+	if err := ReadDirsTypeFunc(directories, c); err != nil {
 		return fmt.Errorf("%s", err)
 	}
 	return nil
 }
 
-func ReadDirsTypeFunc(directories []string, commandName string) error {
+func ReadDirsTypeFunc(directories []string, c *Command) error {
 	var found bool
 	for _, dir := range directories {
 		if strings.Contains(dir, "/var/run") || strings.Contains(dir, "/Users/omar") {
@@ -132,10 +160,10 @@ func ReadDirsTypeFunc(directories []string, commandName string) error {
 			if entry.IsDir() {
 				continue
 			}
-			if entry.Name() == commandName {
+			if entry.Name() == c.cmdName {
 				found = true
 				if isExecutable(entry) {
-					fmt.Printf("%s is %s/%s\n", entry.Name(), dir, commandName)
+					fmt.Printf("%s is %s/%s\n", entry.Name(), dir, c.cmdName)
 					return nil
 				}
 			}
@@ -143,27 +171,32 @@ func ReadDirsTypeFunc(directories []string, commandName string) error {
 	}
 	// **TODO**: The following if block is redundant and can be removed and return nil immediately with the print statement.
 	if !found {
-		fmt.Printf("%s: not found\n", commandName)
+		fmt.Printf("%s: not found\n", c.cmdName)
 	}
 	return nil
 }
 
-func ExecFunc(cmdList []string, redirectFlag bool) *bytes.Buffer {
-	tCmd := strings.TrimSuffix(cmdList[0], "\n")
-	return LookForDirectoriesExecProgram(tCmd, cmdList[1:], redirectFlag)
+func ExecFunc(c *Command) *bytes.Buffer {
+	return LookForDirectoriesExecProgram(c)
 }
 
-func LookForDirectoriesExecProgram(tCmd string, args []string, redirectFlag bool) *bytes.Buffer {
+func LookForDirectoriesExecProgram(c *Command) *bytes.Buffer {
 	PATH := os.Getenv("PATH")
 	directories := strings.Split(PATH, PathListSeparator)
-	buf, _ := ReadDirsExecProgram(directories, tCmd, args, redirectFlag)
+	buf, _ := ReadDirsExecProgram(directories, c)
 	return buf
 }
 
-func ReadDirsExecProgram(directories []string, commandName string, args []string, redirectFlag bool) (*bytes.Buffer, error) {
-	var execPerm os.FileMode = 0755
-	var buf bytes.Buffer
-	var found bool
+func ReadDirsExecProgram(directories []string, c *Command) (*bytes.Buffer, error) {
+	var (
+		execPerm os.FileMode = 0755
+		buf      bytes.Buffer
+		found    bool
+		args     []string
+	)
+	// Assign commandName to the first argument in the input.
+	commandName := strings.TrimSuffix(c.args[0], "\n")
+	args = c.args[1:]
 	for _, dir := range directories {
 		if strings.Contains(dir, "/var/run") || strings.Contains(dir, "/Users/omar") {
 			continue
@@ -183,18 +216,25 @@ func ReadDirsExecProgram(directories []string, commandName string, args []string
 			if entry.Name() == commandName {
 				found = true
 				if isExecutable(entry) {
-					trim := strings.TrimSuffix(strings.Join(args, " "), "\n")
-					trimmedArgs := strings.Split(trim, " ")
+					if c.redirect {
+						// Assign args to the input starting from the second element to the end excluding last two elements.
+						// Following the good user input that the last two elements are the redirection character and file path.
+						args = c.args[1 : len(c.args)-2]
+					}
+					trimmedInput := strings.TrimSuffix(strings.Join(args, " "), "\n")
+					trimmedArgs := strings.Split(trimmedInput, " ")
 
 					cmd := exec.Command(commandName, trimmedArgs...)
-					if redirectFlag {
-						cmd.Stdout = &buf
-					} else {
-						cmd.Stdout = os.Stdout
-					}
 					cmd.Stdin = os.Stdin
+					cmd.Stdout = os.Stdout
 					cmd.Stderr = os.Stderr
 
+					if c.stdoutRedirect {
+						cmd.Stdout = &buf
+					}
+					if c.stderrRedirect {
+						cmd.Stderr = &buf
+					}
 					err := cmd.Run()
 					if err != nil {
 						return &buf, fmt.Errorf("err: %s", err)
@@ -204,7 +244,7 @@ func ReadDirsExecProgram(directories []string, commandName string, args []string
 					// 	return fmt.Errorf("%s", err)
 					// }
 					// fmt.Printf("%s", combinedOut)
-					// **TODO**: Maybe the next return nil statement is redundant too. Removal to be considered.
+					// TODO: Maybe the next return nil statement is redundant too. Removal to be considered.
 					return &buf, nil
 				} else {
 					fPath := dir + entry.Name()
@@ -226,6 +266,7 @@ func isExecutable(entry os.DirEntry) bool {
 	entryInfo, err := entry.Info()
 	if err != nil {
 		fmt.Println("error retrieving entry information")
+		return false
 	}
 	return strings.Contains(entryInfo.Mode().String(), "x")
 }
@@ -237,7 +278,7 @@ func MakeExecutable(filePath string, mode os.FileMode) error {
 	return nil
 }
 
-func mainLoop() error {
+func mainLoop(c *Command) error {
 	fmt.Print("$ ")
 	cmdInput, err := bufio.NewReader(os.Stdin).ReadString('\n')
 
@@ -250,21 +291,26 @@ func mainLoop() error {
 	}
 
 	trimmedCommand := strings.TrimSuffix(cmdList[0], "\n")
+	c.cmdName = trimmedCommand
+	c.args = cmdList
+	c.stdoutRedirect = false
+	c.stderrRedirect = false
+	c.redirect = false
 	switch {
 	case trimmedCommand == "exit":
 		os.Exit(127)
 	case strings.Contains(cmdInput, ">"):
-		err = redirect(cmdList)
+		err = redirect(c)
 	case trimmedCommand == "echo":
-		err = echoFunc(cmdList)
+		err = echoFunc(c)
 	case trimmedCommand == "type":
-		typeFunc(cmdList)
+		typeFunc(c)
 	case trimmedCommand == "pwd":
 		err = pwdFunc()
 	case trimmedCommand == "cd":
-		err = cdFunc(cmdList)
+		err = cdFunc(c)
 	default:
-		ExecFunc(cmdList, false)
+		ExecFunc(c)
 	}
 	if err != nil {
 		fmt.Print(err)
@@ -273,8 +319,9 @@ func mainLoop() error {
 }
 
 func main() {
+	c := &Command{}
 	for {
-		err := mainLoop()
+		err := mainLoop(c)
 		if err != nil {
 			break
 		}
