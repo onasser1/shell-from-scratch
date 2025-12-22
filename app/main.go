@@ -15,7 +15,9 @@ import (
 
 const PathListSeparator = ":"
 
-type MyCompleter struct{}
+type MyCompleter struct {
+	tabCounter int
+}
 
 type Command struct {
 	stdoutRedirect bool
@@ -336,11 +338,12 @@ func GetEntries(dirs, candidates []string) ([]string, error) {
 
 func (c *MyCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
 	var err error
+	c.tabCounter++
 	// Get the current word being typed
 	lineStr := string(line[:pos])
 
 	pathExecutables := strings.Split(os.Getenv("PATH"), PathListSeparator)
-	candidates := []string{"exit", "echo", "cd", "cat", "pwd", "ls", "type"}
+	candidates := []string{"exit", "echo", "cd", "cat", "ls", "type"}
 	candidates = append(candidates, pathExecutables...)
 	candidates, err = GetEntries(pathExecutables, candidates)
 	if err != nil {
@@ -355,8 +358,20 @@ func (c *MyCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
 		}
 	}
 
-	if len(matches) == 0 {
+	slices.Sort(matches)
+
+	if len(matches) == 0 || (len(matches) > 1 && c.tabCounter == 1) {
 		fmt.Print("\x07")
+		return [][]rune{}, 0
+	}
+
+	if len(matches) > 1 && c.tabCounter == 2 {
+		fmt.Println()
+		c.tabCounter = 0
+		for i := 0; i < len(matches)-1; i++ {
+			fmt.Printf("%s ", matches[i])
+		}
+		fmt.Println(matches[len(matches)-1])
 		return [][]rune{}, 0
 	}
 
