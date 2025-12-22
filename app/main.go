@@ -13,9 +13,7 @@ import (
 	"strings"
 )
 
-const (
-	PathListSeparator = ":"
-)
+const PathListSeparator = ":"
 
 type MyCompleter struct{}
 
@@ -311,6 +309,65 @@ func stripQuotes(sl []string) []string {
 	return sl
 }
 
+func GetEntries(dirs, candidates []string) ([]string, error) {
+	for _, dir := range dirs {
+		if strings.Contains(dir, "/var/run") || strings.Contains(dir, "/Users/omar") {
+			continue
+		}
+		err := os.MkdirAll(dir, os.ModePerm)
+		if err != nil {
+			return []string{}, fmt.Errorf("error creating non-existent directories: %s", err)
+		}
+
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return []string{}, err
+		}
+		for _, entry := range entries {
+			// TODO: this should be removed due to is redundancy because currently we only use entries from $PATH, which always hold binary executables inside.
+			if entry.IsDir() {
+				continue
+			}
+			candidates = append(candidates, entry.Name())
+		}
+	}
+	return candidates, nil
+}
+
+func (c *MyCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
+	var err error
+	// Get the current word being typed
+	lineStr := string(line[:pos])
+
+	pathExecutables := strings.Split(os.Getenv("PATH"), PathListSeparator)
+	candidates := []string{"exit", "echo", "cd", "cat", "pwd", "ls", "type"}
+	candidates = append(candidates, pathExecutables...)
+	candidates, err = GetEntries(pathExecutables, candidates)
+	if err != nil {
+		panic(err)
+	}
+	var matches []string
+
+	for _, candidate := range candidates {
+		if len(lineStr) > 0 && candidate[:min(len(candidate), len(lineStr))] == lineStr {
+			candidate += " "
+			matches = append(matches, candidate)
+		}
+	}
+
+	if len(matches) == 0 {
+		fmt.Print("\x07")
+		return [][]rune{}, 0
+	}
+
+	newLine = make([][]rune, len(matches))
+	for i, match := range matches {
+		newLine[i] = []rune(match[len(lineStr):])
+	}
+
+	return newLine, len(lineStr)
+}
+
 func mainLoop(c *Command, rl *readline.Instance) error {
 	line, err := rl.Readline()
 	if err != nil {
@@ -348,32 +405,6 @@ func mainLoop(c *Command, rl *readline.Instance) error {
 		fmt.Print(err)
 	}
 	return nil
-}
-func (c *MyCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
-	// Get the current word being typed
-	lineStr := string(line[:pos])
-
-	candidates := []string{"exit", "echo", "cd", "cat", "pwd", "ls", "type"}
-	var matches []string
-
-	for _, candidate := range candidates {
-		if len(lineStr) > 0 && candidate[:min(len(candidate), len(lineStr))] == lineStr {
-			candidate += " "
-			matches = append(matches, candidate)
-		}
-	}
-
-	if len(matches) == 0 {
-		fmt.Print("\x07")
-		return [][]rune{}, 0
-	}
-
-	newLine = make([][]rune, len(matches))
-	for i, match := range matches {
-		newLine[i] = []rune(match[len(lineStr):])
-	}
-
-	return newLine, len(lineStr)
 }
 
 func main() {
