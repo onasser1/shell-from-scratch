@@ -337,9 +337,32 @@ func GetEntries(dirs, candidates []string) ([]string, error) {
 	return candidates, nil
 }
 
+func longestCommonPrefix(strs []string) string {
+	if len(strs) == 0 {
+		return ""
+	}
+
+	if len(strs) == 1 {
+		return strs[0]
+	}
+
+	prefix := strs[0]
+
+	for _, s := range strs[1:] {
+		for !strings.HasPrefix(s, prefix) {
+			prefix = prefix[:len(prefix)-1]
+			if prefix == "" {
+				return ""
+			}
+		}
+	}
+	return prefix
+}
+
 func (c *MyCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
 	var err error
 	c.tabCounter++
+
 	// Get the current word being typed
 	lineStr := string(line[:pos])
 
@@ -353,8 +376,7 @@ func (c *MyCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
 	var matches []string
 
 	for _, candidate := range candidates {
-		if len(lineStr) > 0 && candidate[:min(len(candidate), len(lineStr))] == lineStr {
-			candidate += " "
+		if len(lineStr) > 0 && strings.HasPrefix(candidate, lineStr) {
 			matches = append(matches, candidate)
 		}
 	}
@@ -362,31 +384,61 @@ func (c *MyCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
 	slices.Sort(matches)
 	matches = slices.CompactFunc(matches, func(a, b string) bool { return a == b })
 
-	if len(matches) == 0 || (len(matches) > 1 && c.tabCounter == 1) {
+	// No matches - beep and reset
+	if len(matches) == 0 {
 		fmt.Print("\x07")
+		c.tabCounter = 0
 		return [][]rune{}, 0
 	}
 
-	if len(matches) > 1 && c.tabCounter == 2 {
-		fmt.Println()
+	// Single match - complete with space
+	if len(matches) == 1 {
 		c.tabCounter = 0
+		remainder := matches[0][len(lineStr):] + " "
+		return [][]rune{[]rune(remainder)}, len(lineStr)
+	}
+
+	// Multiple matches
+	// ALWAYS beep on first TAB
+	if c.tabCounter == 1 {
+		fmt.Print("\x07")
+	}
+
+	// Find longest common prefix
+	commonPrefix := longestCommonPrefix(matches)
+
+	// If common prefix is longer than what user typed, complete to it
+	if len(commonPrefix) > len(lineStr) {
+		c.tabCounter = 0
+		remainder := commonPrefix[len(lineStr):]
+		return [][]rune{[]rune(remainder)}, len(lineStr)
+	}
+
+	// No common prefix to complete
+	// First TAB - already beeped above, just return
+	if c.tabCounter == 1 {
+		return [][]rune{}, 0
+	}
+
+	// Second TAB or more - show all matches
+	if c.tabCounter >= 2 {
+		c.tabCounter = 0
+		fmt.Println()
 		for i := 0; i < len(matches)-1; i++ {
-			fmt.Printf("%s ", matches[i])
+			fmt.Printf("%s  ", matches[i])
 		}
 		fmt.Println(matches[len(matches)-1])
 
+		// KEY FIX: Force readline to refresh and redraw the prompt
 		if c.rl != nil {
-			c.rl.Refresh() // Force redraw prompt with current input
+			c.rl.Refresh()
 		}
+
 		return [][]rune{}, 0
 	}
 
-	newLine = make([][]rune, len(matches))
-	for i, match := range matches {
-		newLine[i] = []rune(match[len(lineStr):])
-	}
-
-	return newLine, len(lineStr)
+	c.tabCounter = 0
+	return [][]rune{}, 0
 }
 
 func mainLoop(c *Command, rl *readline.Instance) error {
