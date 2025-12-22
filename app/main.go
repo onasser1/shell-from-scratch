@@ -17,6 +17,7 @@ const PathListSeparator = ":"
 
 type MyCompleter struct {
 	tabCounter int
+	rl         *readline.Instance
 }
 
 type Command struct {
@@ -359,6 +360,7 @@ func (c *MyCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
 	}
 
 	slices.Sort(matches)
+	matches = slices.CompactFunc(matches, func(a, b string) bool { return a == b })
 
 	if len(matches) == 0 || (len(matches) > 1 && c.tabCounter == 1) {
 		fmt.Print("\x07")
@@ -372,6 +374,10 @@ func (c *MyCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
 			fmt.Printf("%s ", matches[i])
 		}
 		fmt.Println(matches[len(matches)-1])
+
+		if c.rl != nil {
+			c.rl.Refresh() // Force redraw prompt with current input
+		}
 		return [][]rune{}, 0
 	}
 
@@ -435,6 +441,8 @@ func main() {
 		panic(err)
 	}
 	defer rl.Close()
+	completer.rl = rl
+
 	for {
 		err := mainLoop(c, rl)
 		if err != nil {
