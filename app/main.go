@@ -17,6 +17,8 @@ const (
 	PathListSeparator = ":"
 )
 
+type MyCompleter struct{}
+
 type Command struct {
 	stdoutRedirect bool
 	stderrRedirect bool
@@ -347,10 +349,36 @@ func mainLoop(c *Command, rl *readline.Instance) error {
 	}
 	return nil
 }
+func (c *MyCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
+	// Get the current word being typed
+	lineStr := string(line[:pos])
+
+	candidates := []string{"exit", "echo", "cd", "cat", "pwd", "ls", "type"}
+	var matches []string
+
+	for _, candidate := range candidates {
+		if len(lineStr) > 0 && candidate[:min(len(candidate), len(lineStr))] == lineStr {
+			candidate += " "
+			matches = append(matches, candidate)
+		}
+	}
+
+	if len(matches) == 0 {
+		fmt.Print("\x07")
+		return [][]rune{}, 0
+	}
+
+	newLine = make([][]rune, len(matches))
+	for i, match := range matches {
+		newLine[i] = []rune(match[len(lineStr):])
+	}
+
+	return newLine, len(lineStr)
+}
 
 func main() {
 	c := &Command{}
-	completer := readline.NewPrefixCompleter(readline.PcItem("exit"), readline.PcItem("echo"))
+	completer := &MyCompleter{}
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:          "$ ",
 		AutoComplete:    completer,
