@@ -13,7 +13,10 @@ import (
 	"strings"
 )
 
-const PathListSeparator = ":"
+const (
+	PathListSeparator = ":"
+	PipelineCharacter = "|"
+)
 
 type MyCompleter struct {
 	tabCounter int
@@ -24,8 +27,10 @@ type Command struct {
 	stdoutRedirect bool
 	stderrRedirect bool
 	redirect       bool
+	pipeline       bool
 	args           []string
 	cmdName        string
+	buffer         *bytes.Buffer
 }
 
 // Ensures gofmt doesn't remove the "fmt" import
@@ -49,6 +54,7 @@ func redirect(c *Command) error {
 	if len(c.args) < 3 {
 		return fmt.Errorf("Invalid args\n")
 	}
+	c.buffer = &bytes.Buffer{}
 	redirectionCharacters := []string{">", "1>", "1>>", ">>", "2>", "2>>"}
 	// This is a very weak assumption. here we always assume that the input is ** ** ** ** > path. but what if we didn't get that formula?
 	outFile := strings.TrimSuffix(c.args[len(c.args)-1], "\n")
@@ -79,6 +85,24 @@ func redirect(c *Command) error {
 			return err
 		}
 	}
+	return nil
+}
+
+func pipelineSplitter(c *Command) error {
+	cmdInput := strings.Join(c.args, " ")
+	firstCmd, secondCmd, _ := strings.Cut(cmdInput, PipelineCharacter)
+	firstCmd = strings.TrimSuffix(firstCmd, " ")
+	secondCmd = strings.TrimPrefix(secondCmd, " ")
+	// firstCommand call. using the returned buffer as second command stdin.
+	c.args = strings.Split(firstCmd, " ")
+	c.buffer = &bytes.Buffer{}
+	c.stdoutRedirect = true
+	ExecFunc(c)
+	c.pipeline = true
+	c.stdoutRedirect = false
+	c.args = strings.Split(secondCmd, " ")
+	ExecFunc(c)
+	c.pipeline = false
 	return nil
 }
 
@@ -215,7 +239,6 @@ func LookForDirectoriesExecProgram(c *Command) *bytes.Buffer {
 func ReadDirsExecProgram(directories []string, c *Command) (*bytes.Buffer, error) {
 	var (
 		execPerm os.FileMode = 0755
-		buf      bytes.Buffer
 		found    bool
 		args     []string
 	)
@@ -248,6 +271,7 @@ func ReadDirsExecProgram(directories []string, c *Command) (*bytes.Buffer, error
 					}
 					trimmedInput := strings.TrimSuffix(strings.Join(args, " "), "\n")
 					trimmedArgs := stripQuotes(strings.Split(trimmedInput, " "))
+					fmt.Println(trimmedArgs, len(trimmedArgs))
 
 					// As single and double quotes are not supported yet for this shell, we have to remove quotes that wrap the whole strings.
 					cmd := exec.Command(commandName, trimmedArgs...)
@@ -256,14 +280,17 @@ func ReadDirsExecProgram(directories []string, c *Command) (*bytes.Buffer, error
 					cmd.Stderr = os.Stderr
 
 					if c.stdoutRedirect {
-						cmd.Stdout = &buf
+						cmd.Stdout = c.buffer
 					}
 					if c.stderrRedirect {
-						cmd.Stderr = &buf
+						cmd.Stderr = c.buffer
+					}
+					if c.pipeline {
+						cmd.Stdin = c.buffer
 					}
 					err := cmd.Run()
 					if err != nil {
-						return &buf, fmt.Errorf("err: %s", err)
+						return c.buffer, fmt.Errorf("err: %s", err)
 					}
 					// combinedOut, err := cmd.CombinedOutput()
 					// if err != nil {
@@ -271,7 +298,7 @@ func ReadDirsExecProgram(directories []string, c *Command) (*bytes.Buffer, error
 					// }
 					// fmt.Printf("%s", combinedOut)
 					// TODO: Maybe the next return nil statement is redundant too. Removal to be considered.
-					return &buf, nil
+					return c.buffer, nil
 				} else {
 					fPath := dir + entry.Name()
 					if err := MakeExecutable(fPath, execPerm); err != nil {
@@ -285,7 +312,7 @@ func ReadDirsExecProgram(directories []string, c *Command) (*bytes.Buffer, error
 		fmt.Printf("%s: not found\n", commandName)
 	}
 	// **TODO**: Maybe the next return nil statement is redundant too. Removal to be considered.
-	return &buf, nil
+	return c.buffer, nil
 }
 
 func isExecutable(entry os.DirEntry) bool {
@@ -335,6 +362,17 @@ func GetEntries(dirs, candidates []string) ([]string, error) {
 		}
 	}
 	return candidates, nil
+}
+
+func cleanArgs(args []string) []string {
+	var cleaned []string
+	for _, arg := range args {
+		trimmed := strings.TrimSpace(strings.TrimSuffix(arg, "\n"))
+		if trimmed != "" {
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+	return cleaned
 }
 
 func longestCommonPrefix(strs []string) string {
@@ -452,24 +490,26 @@ func mainLoop(c *Command, rl *readline.Instance) error {
 		return errors.New("invalid input")
 	}
 
-	trimmedCommand := strings.TrimSuffix(cmdList[0], "\n")
-	c.cmdName = trimmedCommand
+	firstCommand := strings.TrimSuffix(cmdList[0], "\n")
+	c.cmdName = firstCommand
 	c.args = cmdList
 	c.stdoutRedirect = false
 	c.stderrRedirect = false
 	c.redirect = false
 	switch {
-	case trimmedCommand == "exit":
+	case firstCommand == "exit":
 		os.Exit(127)
 	case strings.Contains(line, ">"):
 		err = redirect(c)
-	case trimmedCommand == "echo":
+	case strings.Contains(line, "|"):
+		err = pipelineSplitter(c)
+	case firstCommand == "echo":
 		err = echoFunc(c)
-	case trimmedCommand == "type":
+	case firstCommand == "type":
 		typeFunc(c)
-	case trimmedCommand == "pwd":
+	case firstCommand == "pwd":
 		err = pwdFunc()
-	case trimmedCommand == "cd":
+	case firstCommand == "cd":
 		err = cdFunc(c)
 	default:
 		ExecFunc(c)
