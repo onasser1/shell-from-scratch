@@ -89,30 +89,19 @@ func redirect(c *Command) error {
 }
 
 func pipelineSplitter(c *Command) error {
-	pipeIdx := -1
-	for i, arg := range c.args {
-		if arg == PipelineCharacter {
-			pipeIdx = i
-			break
-		}
-	}
-	firstArgs := c.args[:pipeIdx]
-	secondArgs := c.args[pipeIdx+1:]
-
-	firstArgs = cleanArgs(firstArgs)
-	secondArgs = cleanArgs(secondArgs)
-
-	c.args = firstArgs
+	cmdInput := strings.Join(c.args, " ")
+	firstCmd, secondCmd, _ := strings.Cut(cmdInput, PipelineCharacter)
+	firstCmd = strings.TrimSuffix(firstCmd, " ")
+	secondCmd = strings.TrimPrefix(secondCmd, " ")
+	// firstCommand call. using the returned buffer as second command stdin.
+	c.args = strings.Split(firstCmd, " ")
 	c.buffer = &bytes.Buffer{}
 	c.stdoutRedirect = true
 	ExecFunc(c)
-
-	c.args = secondArgs
 	c.pipeline = true
 	c.stdoutRedirect = false
+	c.args = strings.Split(secondCmd, " ")
 	ExecFunc(c)
-
-	// Reset flags
 	c.pipeline = false
 	return nil
 }
@@ -251,113 +240,79 @@ func ReadDirsExecProgram(directories []string, c *Command) (*bytes.Buffer, error
 	var (
 		execPerm os.FileMode = 0755
 		found    bool
+		args     []string
 	)
-
-	// Safety check
-	if len(c.args) == 0 {
-		return c.buffer, nil
-	}
-
-	// Command name is the first argument
+	// Assign commandName to the first argument in the input.
 	commandName := strings.TrimSuffix(c.args[0], "\n")
-
-	// Start with all arguments after the command name
-	programArgs := c.args[1:]
-
-	// Handle output redirection (> or >> file)
-	if c.redirect {
-		if len(c.args) >= 3 {
-			// Exclude the redirection symbol and the target filename
-			programArgs = c.args[1 : len(c.args)-2]
-		} else {
-			// Malformed — fall back
-			programArgs = c.args[1:]
-		}
-	}
-
-	// Step 1: Clean whitespace, newlines, and empty strings
-	cleanedArgs := cleanArgs(programArgs)
-
-	// Step 2: Apply stripQuotes to handle quoted arguments (e.g., "file name.txt" -> file name.txt)
-	quotedStrippedArgs := stripQuotes(cleanedArgs)
-
-	// Search for the command
+	args = c.args[1:]
 	for _, dir := range directories {
 		if strings.Contains(dir, "/var/run") || strings.Contains(dir, "/Users/omar") {
 			continue
 		}
-
-		if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-			return &bytes.Buffer{}, fmt.Errorf("error creating directories: %w", err)
+		err := os.MkdirAll(dir, os.ModePerm)
+		if err != nil {
+			return &bytes.Buffer{}, fmt.Errorf("error creating non-existent directories: %s", err)
 		}
-
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			continue // skip bad dirs
+			return &bytes.Buffer{}, fmt.Errorf("error reading directory: %s", err)
 		}
-
 		for _, entry := range entries {
 			if entry.IsDir() {
 				continue
 			}
 			if entry.Name() == commandName {
 				found = true
+				if isExecutable(entry) {
+					if c.redirect {
+						// Assign args to the input starting from the second element to the end excluding last two elements.
+						// Following the good user input that the last two elements are the redirection character and file path.
+						args = c.args[1 : len(c.args)-2]
+					}
+					trimmedInput := strings.TrimSuffix(strings.Join(args, " "), "\n")
+					trimmedArgs := stripQuotes(strings.Split(trimmedInput, " "))
+					fmt.Println(trimmedArgs, len(trimmedArgs))
 
-				fullPath := filepath.Join(dir, entry.Name())
+					// As single and double quotes are not supported yet for this shell, we have to remove quotes that wrap the whole strings.
+					cmd := exec.Command(commandName, trimmedArgs...)
+					cmd.Stdin = os.Stdin
+					cmd.Stdout = os.Stdout
+					cmd.Stderr = os.Stderr
 
-				if !isExecutable(entry) {
-					if err := MakeExecutable(fullPath, execPerm); err != nil {
-						return &bytes.Buffer{}, fmt.Errorf("making executable: %w", err)
+					if c.stdoutRedirect {
+						cmd.Stdout = c.buffer
+					}
+					if c.stderrRedirect {
+						cmd.Stderr = c.buffer
+					}
+					if c.pipeline {
+						cmd.Stdin = c.buffer
+					}
+					err := cmd.Run()
+					if err != nil {
+						return c.buffer, fmt.Errorf("err: %s", err)
+					}
+					// combinedOut, err := cmd.CombinedOutput()
+					// if err != nil {
+					// 	return fmt.Errorf("%s", err)
+					// }
+					// fmt.Printf("%s", combinedOut)
+					// TODO: Maybe the next return nil statement is redundant too. Removal to be considered.
+					return c.buffer, nil
+				} else {
+					fPath := dir + entry.Name()
+					if err := MakeExecutable(fPath, execPerm); err != nil {
+						return &bytes.Buffer{}, fmt.Errorf("%s", err)
 					}
 				}
-
-				fmt.Println(quotedStrippedArgs)
-
-				// Create command with final cleaned + quote-stripped args
-				cmd := exec.Command(commandName, quotedStrippedArgs...)
-
-				// Default I/O
-				cmd.Stdin = os.Stdin
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
-
-				// Redirects
-				if c.stdoutRedirect {
-					cmd.Stdout = c.buffer
-				}
-				if c.stderrRedirect {
-					cmd.Stderr = c.buffer
-				}
-				if c.pipeline {
-					cmd.Stdin = c.buffer
-				}
-
-				if err := cmd.Run(); err != nil {
-					return c.buffer, fmt.Errorf("command failed: %w", err)
-				}
-
-				return c.buffer, nil
 			}
 		}
 	}
-
 	if !found {
 		fmt.Printf("%s: not found\n", commandName)
 	}
-
+	// **TODO**: Maybe the next return nil statement is redundant too. Removal to be considered.
 	return c.buffer, nil
-}
-
-// Helper: clean whitespace, newlines, and empty strings
-func cleanArgs(args []string) []string {
-	var cleaned []string
-	for _, arg := range args {
-		trimmed := strings.TrimSpace(strings.TrimSuffix(arg, "\n"))
-		if trimmed != "" {
-			cleaned = append(cleaned, trimmed)
-		}
-	}
-	return cleaned
 }
 
 func isExecutable(entry os.DirEntry) bool {
@@ -407,6 +362,17 @@ func GetEntries(dirs, candidates []string) ([]string, error) {
 		}
 	}
 	return candidates, nil
+}
+
+func cleanArgs(args []string) []string {
+	var cleaned []string
+	for _, arg := range args {
+		trimmed := strings.TrimSpace(strings.TrimSuffix(arg, "\n"))
+		if trimmed != "" {
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+	return cleaned
 }
 
 func longestCommonPrefix(strs []string) string {
@@ -537,6 +503,8 @@ func mainLoop(c *Command, rl *readline.Instance) error {
 		err = redirect(c)
 	case strings.Contains(line, "|"):
 		err = pipelineSplitter(c)
+	case firstCommand == "echo":
+		err = echoFunc(c)
 	case firstCommand == "type":
 		typeFunc(c)
 	case firstCommand == "pwd":
