@@ -135,8 +135,8 @@ func changeDirectoryFunc(normalizedPathArg string) error {
 
 func history(c *Command) {
 	c.history = append(c.history, "history")
-	for _, v := range c.history {
-		fmt.Println(v)
+	for i, v := range c.history {
+		fmt.Printf("\t%d  %s\n", i+1, v)
 	}
 }
 
@@ -486,7 +486,7 @@ func mainLoop(c *Command, rl *readline.Instance) error {
 	default:
 		ExecFunc(c)
 	}
-	c.history = append(c.history, trimmedCommand)
+	c.history = append(c.history, line)
 	if err != nil {
 		fmt.Print(err)
 	}
