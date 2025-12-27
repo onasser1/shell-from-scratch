@@ -55,7 +55,7 @@ func redirect(c *Command) error {
 	redirectionCharacters := []string{">", "1>", "1>>", ">>", "2>", "2>>"}
 	// This is a very weak assumption. here we always assume that the input is ** ** ** ** > path. but what if we didn't get that formula?
 	outFile := strings.TrimSuffix(c.args[len(c.args)-1], "\n")
-	for i, _ := range redirectionCharacters {
+	for i := range redirectionCharacters {
 		idx = slices.Index(c.args, redirectionCharacters[i])
 		if idx != -1 {
 			matcher = c.args[idx]
@@ -70,13 +70,13 @@ func redirect(c *Command) error {
 	}
 	// c.args[:len(c.args)-2]
 	buf := ExecFunc(c)
-	cleanedBuf := strings.ReplaceAll(buf.String(), "'", "")
+	cleanedString := strings.ReplaceAll(buf.String(), "'", "")
 	if matcher != "" && buf != nil {
 		switch matcher {
 		case ">>", "1>>", "2>>":
-			err = WriteFiles(outFile, cleanedBuf, os.O_APPEND)
+			err = WriteFiles(outFile, cleanedString, os.O_APPEND)
 		default:
-			err = WriteFiles(outFile, cleanedBuf, 0)
+			err = WriteFiles(outFile, cleanedString, 0)
 		}
 		if err != nil {
 			return err
@@ -85,13 +85,14 @@ func redirect(c *Command) error {
 	return nil
 }
 
-func WriteFiles(outFile string, cleanedBuf string, append int) error {
+func WriteFiles(outFile string, cleanedString string, append int) error {
 	f, err := os.OpenFile(outFile, append|os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if _, err := f.WriteString(cleanedBuf); err != nil {
-		f.Close() // ignore error; Write error takes precedence
+	_, err = f.WriteString(cleanedString)
+	if err != nil {
+		f.Close()
 		log.Fatal(err)
 	}
 	if err := f.Close(); err != nil {
@@ -134,6 +135,17 @@ func changeDirectoryFunc(normalizedPathArg string) error {
 	return nil
 }
 
+func CleanList(list []string) []string {
+	var cleaned []string
+	for i := 0; i < len(list); i++ {
+		if list[i] == "" {
+			continue
+		}
+		cleaned = append(cleaned, list[i])
+	}
+	return cleaned
+}
+
 func history(c *Command) error {
 	var err error
 	// if len(c.args) == 1 {
@@ -153,28 +165,38 @@ func history(c *Command) error {
 	case 2:
 		err = LimitedHistory(c)
 	case 3:
-		err = ReadHistoryFromFile(c)
+		err = ReadWriteHistory(c)
 	default:
 		fmt.Println("Inappropriate number of history arguments.")
 	}
 	return err
 }
 
-func CleanList(list []string) []string {
-	var cleaned []string
-	for i := 0; i < len(list); i++ {
-		if list[i] == "" {
-			continue
-		}
-		cleaned = append(cleaned, list[i])
+func ReadWriteHistory(c *Command) error {
+	var err error
+	switch c.args[1] {
+	case "-r":
+		err = ReadHistoryFromFile(c)
+	case "-w":
+		err = WriteHistoryToFile(c)
+	default:
+		err = fmt.Errorf("invalid flag option: %s for history. only -r is supported currently", c.args[1])
 	}
-	return cleaned
+	return err
+}
+
+func WriteHistoryToFile(c *Command) error {
+	path := c.args[2]
+	c.history = append(c.history, strings.Join(c.args, " "))
+	err := WriteFiles(path, strings.Join(c.history, "\n"), os.O_APPEND)
+	err = WriteFiles(path, "\n", os.O_APPEND)
+	if err != nil {
+		return fmt.Errorf("error writing to history file: %s", err)
+	}
+	return nil
 }
 
 func ReadHistoryFromFile(c *Command) error {
-	if c.args[1] != "-r" {
-		return fmt.Errorf("invalid flag option: %s for history. only -r is supported currently", c.args[1])
-	}
 	history, err := os.ReadFile(c.args[2])
 	if err != nil {
 		return fmt.Errorf("error reading history file")
