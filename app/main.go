@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/chzyer/readline"
@@ -133,7 +134,31 @@ func changeDirectoryFunc(normalizedPathArg string) error {
 	return nil
 }
 
-func history(c *Command) {
+func history(c *Command) error {
+	var err error
+	if len(c.args) == 1 {
+		allHistory(c)
+		return nil
+	} else if len(c.args) == 2 {
+		num, err := strconv.Atoi(c.args[1])
+		if err != nil {
+			return fmt.Errorf("error couldn't convert history number: %s", err)
+		}
+		limitedHistory(c, num)
+		return nil
+	}
+	return err
+}
+
+func limitedHistory(c *Command, n int) {
+	c.history = append(c.history, fmt.Sprintf("history %d", n))
+	length := len(c.history) - n
+	for idx := length; idx < len(c.history); idx++ {
+		fmt.Printf("\t%d  %s\n", idx+1, c.history[idx])
+	}
+}
+
+func allHistory(c *Command) {
 	c.history = append(c.history, "history")
 	for i, v := range c.history {
 		fmt.Printf("\t%d  %s\n", i+1, v)
@@ -482,11 +507,13 @@ func mainLoop(c *Command, rl *readline.Instance) error {
 	case trimmedCommand == "cd":
 		err = cdFunc(c)
 	case trimmedCommand == "history":
-		history(c)
+		err = history(c)
 	default:
 		ExecFunc(c)
 	}
-	c.history = append(c.history, line)
+	if trimmedCommand != "history" {
+		c.history = append(c.history, line)
+	}
 	if err != nil {
 		fmt.Print(err)
 	}
