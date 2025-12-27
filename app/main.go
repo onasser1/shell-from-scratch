@@ -26,8 +26,6 @@ type Command struct {
 	stdoutRedirect bool
 	stderrRedirect bool
 	redirect       bool
-	onStartup      bool
-	onExit         bool
 	cmdName        string
 	args           []string
 	history        []string
@@ -151,27 +149,15 @@ func CleanList(list []string) []string {
 func exit(c *Command) {
 	envPath := os.Getenv("HISTFILE")
 	if envPath != "" {
-		c.args = []string{"history", "-r", envPath}
-		c.onExit = true
 		// TODO: refactor and use history instead. we need a generic way to initialize append and write flags.
-		WriteHistoryToFile(c)
+		WriteHistoryToFileOnExit(c, envPath)
 	}
 	os.Exit(0)
 }
 
 func history(c *Command) error {
 	var err error
-	// if len(c.args) == 1 {
-	// 	fullHistory(c)
-	// 	return nil
-	// } else if len(c.args) == 2 {
-	// 	num, err := strconv.Atoi(c.args[1])
-	// 	if err != nil {
-	// 		return fmt.Errorf("error couldn't convert history number: %s", err)
-	// 	}
-	// 	limitedHistory(c, num)
-	// 	return nil
-	// }
+
 	switch len(c.args) {
 	case 1:
 		err = FullHistory(c)
@@ -198,18 +184,22 @@ func ReadWriteHistory(c *Command) error {
 	return err
 }
 
+func WriteHistoryToFileOnExit(c *Command, path string) error {
+	err := WriteFiles(path, strings.Join(c.history, "\n"), 0)
+	err = WriteFiles(path, "\nexit", os.O_APPEND)
+	err = WriteFiles(path, "\n", os.O_APPEND)
+
+	if err != nil {
+		return fmt.Errorf("error writing to history file: %s", err)
+	}
+	return nil
+}
+
 func WriteHistoryToFile(c *Command) error {
 	path := c.args[2]
 
-	if !c.onExit {
-		c.history = append(c.history, strings.Join(c.args, " "))
-	}
+	c.history = append(c.history, strings.Join(c.args, " "))
 	err := WriteFiles(path, strings.Join(c.history, "\n"), os.O_APPEND)
-
-	if c.onExit {
-		err = WriteFiles(path, "\nexit", os.O_APPEND)
-	}
-
 	err = WriteFiles(path, "\n", os.O_APPEND)
 	if err != nil {
 		return fmt.Errorf("error writing to history file: %s", err)
@@ -223,12 +213,27 @@ func ReadHistoryFromFile(c *Command) error {
 	if err != nil {
 		return fmt.Errorf("error reading history file")
 	}
-	if !c.onStartup {
-		c.history = append(c.history, strings.Join(c.args, " "))
-	}
-	historyFile := strings.Split(string(history), "\n")
-	cleanedHistory := CleanList(historyFile)
+	c.history = append(c.history, strings.Join(c.args, " "))
+
+	cleanedHistory := CleanList(strings.Split(string(history), "\n"))
+	tmp := c.history
+	c.history = []string{}
+	c.history = append(c.history, tmp...)
 	c.history = append(c.history, cleanedHistory...)
+	return nil
+}
+
+func ReadHistoryFromFileOnStartup(c *Command) error {
+	history, err := os.ReadFile(c.args[2])
+	if err != nil {
+		return fmt.Errorf("error reading history file")
+	}
+
+	cleanedHistory := CleanList(strings.Split(string(history), "\n"))
+	tmp := c.history
+	c.history = []string{}
+	c.history = append(c.history, cleanedHistory...)
+	c.history = append(c.history, tmp...)
 	return nil
 }
 
@@ -250,14 +255,12 @@ func FullHistory(c *Command) error {
 	envPath := os.Getenv("HISTFILE")
 	if envPath != "" {
 		c.args = []string{"history", "-r", envPath}
-		c.onStartup = true
-		ReadHistoryFromFile(c)
+		ReadHistoryFromFileOnStartup(c)
 	}
 	c.history = append(c.history, "history")
 	for i, v := range c.history {
 		fmt.Printf("\t%d  %s\n", i+1, v)
 	}
-	c.onStartup = false
 	return nil
 }
 
