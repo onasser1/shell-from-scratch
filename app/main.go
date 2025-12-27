@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/chzyer/readline"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/chzyer/readline"
 )
 
 const PathListSeparator = ":"
@@ -24,8 +25,9 @@ type Command struct {
 	stdoutRedirect bool
 	stderrRedirect bool
 	redirect       bool
-	args           []string
 	cmdName        string
+	args           []string
+	history        []string
 }
 
 // Ensures gofmt doesn't remove the "fmt" import
@@ -131,13 +133,21 @@ func changeDirectoryFunc(normalizedPathArg string) error {
 	return nil
 }
 
+func history(c *Command) {
+	c.history = append(c.history, "history")
+	for _, v := range c.history {
+		fmt.Println(v)
+	}
+}
+
 func echoFunc(c *Command) error {
 	if len(c.args) == 1 {
 		fmt.Println()
 		return nil
 	}
+	c.args = stripQuotes(c.args)
 	args := strings.TrimSuffix(strings.Join(c.args[1:], " "), "\n")
-	fmt.Println(strings.ReplaceAll(args, "'", ""))
+	fmt.Println(args)
 	return nil
 }
 
@@ -148,7 +158,7 @@ func typeFunc(c *Command) {
 	}
 	trimmedCommand := strings.TrimSuffix(c.args[1], "\n")
 	switch trimmedCommand {
-	case "echo", "exit", "type", "pwd", "cd":
+	case "echo", "exit", "type", "pwd", "cd", "history":
 		fmt.Printf("%s is a shell builtin\n", strings.TrimSuffix(trimmedCommand, "\n"))
 	default:
 		if err := LookForDirectoriesTypeFunc(c); err != nil {
@@ -471,9 +481,12 @@ func mainLoop(c *Command, rl *readline.Instance) error {
 		err = pwdFunc()
 	case trimmedCommand == "cd":
 		err = cdFunc(c)
+	case trimmedCommand == "history":
+		history(c)
 	default:
 		ExecFunc(c)
 	}
+	c.history = append(c.history, trimmedCommand)
 	if err != nil {
 		fmt.Print(err)
 	}
