@@ -136,33 +136,76 @@ func changeDirectoryFunc(normalizedPathArg string) error {
 
 func history(c *Command) error {
 	var err error
-	if len(c.args) == 1 {
-		allHistory(c)
-		return nil
-	} else if len(c.args) == 2 {
-		num, err := strconv.Atoi(c.args[1])
-		if err != nil {
-			return fmt.Errorf("error couldn't convert history number: %s", err)
-		}
-		limitedHistory(c, num)
-		return nil
+	// if len(c.args) == 1 {
+	// 	fullHistory(c)
+	// 	return nil
+	// } else if len(c.args) == 2 {
+	// 	num, err := strconv.Atoi(c.args[1])
+	// 	if err != nil {
+	// 		return fmt.Errorf("error couldn't convert history number: %s", err)
+	// 	}
+	// 	limitedHistory(c, num)
+	// 	return nil
+	// }
+	switch len(c.args) {
+	case 1:
+		err = FullHistory(c)
+	case 2:
+		err = LimitedHistory(c)
+	case 3:
+		err = ReadHistoryFromFile(c)
+	default:
+		fmt.Println("Inappropriate number of history arguments.")
 	}
 	return err
 }
 
-func limitedHistory(c *Command, n int) {
+func CleanList(list []string) []string {
+	var cleaned []string
+	for i := 0; i < len(list); i++ {
+		if list[i] == "" {
+			continue
+		}
+		cleaned = append(cleaned, list[i])
+	}
+	return cleaned
+}
+
+func ReadHistoryFromFile(c *Command) error {
+	if c.args[1] != "-r" {
+		return fmt.Errorf("invalid flag option: %s for history. only -r is supported currently", c.args[1])
+	}
+	history, err := os.ReadFile(c.args[2])
+	if err != nil {
+		return fmt.Errorf("error reading history file")
+	}
+	c.history = append(c.history, strings.Join(c.args, " "))
+	historyFile := strings.Split(string(history), "\n")
+	cleanedHistory := CleanList(historyFile)
+	c.history = append(c.history, cleanedHistory...)
+	return nil
+}
+
+func LimitedHistory(c *Command) error {
+	n, err := strconv.Atoi(c.args[1])
+	if err != nil {
+		return fmt.Errorf("error couldn't convert history number: %s", err)
+	}
+
 	c.history = append(c.history, fmt.Sprintf("history %d", n))
 	length := len(c.history) - n
 	for idx := length; idx < len(c.history); idx++ {
 		fmt.Printf("\t%d  %s\n", idx+1, c.history[idx])
 	}
+	return nil
 }
 
-func allHistory(c *Command) {
+func FullHistory(c *Command) error {
 	c.history = append(c.history, "history")
 	for i, v := range c.history {
 		fmt.Printf("\t%d  %s\n", i+1, v)
 	}
+	return nil
 }
 
 func echoFunc(c *Command) error {
