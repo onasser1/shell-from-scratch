@@ -26,6 +26,7 @@ type Command struct {
 	stdoutRedirect bool
 	stderrRedirect bool
 	redirect       bool
+	onStartup      bool
 	cmdName        string
 	args           []string
 	history        []string
@@ -202,7 +203,9 @@ func ReadHistoryFromFile(c *Command) error {
 	if err != nil {
 		return fmt.Errorf("error reading history file")
 	}
-	c.history = append(c.history, strings.Join(c.args, " "))
+	if !c.onStartup {
+		c.history = append(c.history, strings.Join(c.args, " "))
+	}
 	historyFile := strings.Split(string(history), "\n")
 	cleanedHistory := CleanList(historyFile)
 	c.history = append(c.history, cleanedHistory...)
@@ -224,12 +227,29 @@ func LimitedHistory(c *Command) error {
 }
 
 func FullHistory(c *Command) error {
+	envPath := os.Getenv("HISTFILE")
+	if envPath != "" {
+		c.args = []string{"history", "-r", envPath}
+		c.onStartup = true
+		ReadHistoryFromFile(c)
+	}
 	c.history = append(c.history, "history")
 	for i, v := range c.history {
 		fmt.Printf("\t%d  %s\n", i+1, v)
 	}
 	return nil
 }
+
+// func ReadHistoryFromFileOnStartup(c *Command) error {
+// 	history, err := os.ReadFile(c.args[2])
+// 	if err != nil {
+// 		return fmt.Errorf("error reading history file")
+// 	}
+// 	historyFile := strings.Split(string(history), "\n")
+// 	cleanedHistory := CleanList(historyFile)
+// 	c.history = append(c.history, cleanedHistory...)
+// 	return nil
+// }
 
 func echoFunc(c *Command) error {
 	if len(c.args) == 1 {
