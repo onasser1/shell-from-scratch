@@ -177,7 +177,7 @@ func ReadWriteHistory(c *Command) error {
 	switch c.args[1] {
 	case "-r":
 		err = ReadHistoryFromFile(c)
-	case "-w":
+	case "-w", "-a":
 		err = WriteHistoryToFile(c)
 	default:
 		err = fmt.Errorf("invalid flag option: %s for history. only -r is supported currently", c.args[1])
@@ -193,6 +193,7 @@ func WriteHistoryToFile(c *Command) error {
 	if err != nil {
 		return fmt.Errorf("error writing to history file: %s", err)
 	}
+	c.history = []string{}
 	return nil
 }
 
