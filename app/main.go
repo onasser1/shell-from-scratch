@@ -27,6 +27,7 @@ type Command struct {
 	stderrRedirect bool
 	redirect       bool
 	onStartup      bool
+	onExit         bool
 	cmdName        string
 	args           []string
 	history        []string
@@ -147,6 +148,17 @@ func CleanList(list []string) []string {
 	return cleaned
 }
 
+func exit(c *Command) {
+	envPath := os.Getenv("HISTFILE")
+	if envPath != "" {
+		c.args = []string{"history", "-r", envPath}
+		c.onExit = true
+		// TODO: refactor and use history instead. we need a generic way to initialize append and write flags.
+		WriteHistoryToFile(c)
+	}
+	os.Exit(0)
+}
+
 func history(c *Command) error {
 	var err error
 	// if len(c.args) == 1 {
@@ -188,8 +200,16 @@ func ReadWriteHistory(c *Command) error {
 
 func WriteHistoryToFile(c *Command) error {
 	path := c.args[2]
-	c.history = append(c.history, strings.Join(c.args, " "))
+
+	if !c.onExit {
+		c.history = append(c.history, strings.Join(c.args, " "))
+	}
 	err := WriteFiles(path, strings.Join(c.history, "\n"), os.O_APPEND)
+
+	if c.onExit {
+		err = WriteFiles(path, "\nexit", os.O_APPEND)
+	}
+
 	err = WriteFiles(path, "\n", os.O_APPEND)
 	if err != nil {
 		return fmt.Errorf("error writing to history file: %s", err)
@@ -237,6 +257,7 @@ func FullHistory(c *Command) error {
 	for i, v := range c.history {
 		fmt.Printf("\t%d  %s\n", i+1, v)
 	}
+	c.onStartup = false
 	return nil
 }
 
@@ -581,7 +602,7 @@ func mainLoop(c *Command, rl *readline.Instance) error {
 	c.redirect = false
 	switch {
 	case trimmedCommand == "exit":
-		os.Exit(127)
+		exit(c)
 	case strings.Contains(line, ">"):
 		err = redirect(c)
 	case trimmedCommand == "echo":
